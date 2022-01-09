@@ -22,6 +22,102 @@ struct consumer{
     pthread_mutex_t mutex;
 };
 
+static void clearLogs()
+{
+    FILE* file = fopen ("prodLog.txt", "w");
+    fprintf(file, "");
+    fclose (file);
+    file = fopen ("consLog.txt", "w");
+    fprintf(file, "");
+    fclose (file);
+    file = fopen ("magazineLog.txt", "w");
+    fprintf(file, "");
+    fclose (file);
+}
+
+static void logProdTry(producer p, long int items)
+{
+    FILE* file = fopen ("prodLog.txt", "a");
+    fprintf(file, "Producent %d próbuje wstawić %ld towarów\n", p.id, items);
+    fclose (file);
+}
+
+static void logProdSuccess(producer p, long int items)
+{
+    FILE* file = fopen ("prodLog.txt", "a");
+    fprintf(file, "Producent %d wstawił %ld towarów\n", p.id, items);
+    fclose (file);
+}
+
+static void logProdStop(producer p){
+    FILE* file = fopen ("prodLog.txt", "a");
+    fprintf(file, "Producent %d zatrzymał się\n", p.id);
+    fclose (file);
+}
+
+static void logProdResume(int id){
+    FILE* file = fopen ("prodLog.txt", "a");
+    fprintf(file, "Producent %d wznowił pracę\n", id);
+    fclose (file);
+}
+
+static void logProdHeurStop(producer p){
+    FILE* file = fopen ("prodLog.txt", "a");
+    fprintf(file, "Producent %d zatrzymał się — stan magazynu\n", p.id);
+    fclose (file);
+}
+
+static void logProdHeurResume(int id){
+    FILE* file = fopen ("prodLog.txt", "a");
+    fprintf(file, "Producent %d wznowił pracę — stan magazynu\n", id);
+    fclose (file);
+}
+
+static void logConsTry(consumer c, long int items)
+{
+    FILE* file = fopen ("consLog.txt", "a");
+    fprintf(file, "Konsument %d próbuje zabrać %ld towarów\n", c.id, items);
+    fclose (file);
+}
+
+static void logConsSuccess(consumer c, long int items)
+{
+    FILE* file = fopen ("consLog.txt", "a");
+    fprintf(file, "Konsument %d zabrał %ld towarów\n", c.id, items);
+    fclose (file);
+}
+
+static void logConsStop(consumer c){
+    FILE* file = fopen ("consLog.txt", "a");
+    fprintf(file, "Konsument %d zatrzymał się\n", c.id);
+    fclose (file);
+}
+
+static void logConsResume(int id){
+    FILE* file = fopen ("consLog.txt", "a");
+    fprintf(file, "Konsument %d wznowił pracę\n", id);
+    fclose (file);
+}
+
+static void logConsHeurStop(consumer c){
+    FILE* file = fopen ("consLog.txt", "a");
+    fprintf(file, "Konsument %d zatrzymał się — stan magazynu\n", c.id);
+    fclose (file);
+}
+
+static void logConsHeurResume(int id){
+    FILE* file = fopen ("consLog.txt", "a");
+    fprintf(file, "Konsument %d wznowił pracę — stan magazynu\n", id);
+    fclose (file);
+}
+
+static void logMagazineChange(long int items){
+    FILE* file = fopen ("magazineLog.txt", "a");
+    fprintf(file, "Stan magazynu: %d\n", items);
+    fclose (file);
+}
+
+
 struct queueNode
 {
     int items;
@@ -43,23 +139,12 @@ class Monitor
 
 private:
 
-    long int updateMagazine(long int magazineChange) {
-        char * pEnd;
-        FILE* file = fopen ("magazine.txt", "r+");
-
-        char fileContent[10];
-        long int currentState = 0;
-
-        fscanf(file, "%s", fileContent);
+    static void updateMagazine(long int magazineState) {
+        FILE* file = fopen ("magazine.txt", "w");
+        fprintf(file, "%ld", magazineState);
         fclose (file);
-
-        currentState = strtol(fileContent, &pEnd, 10);
-        currentState += magazineChange;
-
-        fprintf(file, "%ld", currentState);
-
-        return currentState;
     }
+
 
 public:
 
@@ -67,11 +152,11 @@ public:
         while (capacity < magazineState + producedItems)
         {
             if(!consHeuristic.empty()) {
-                //printf("\tKonusment %d wznowił się przez stan magazynu\n", consHeuristic.front().id);
+                logConsHeurResume(consHeuristic.front().id);
                 consHeuristic.pop();
                 pthread_cond_signal(&lessThanHalf);
             }
-            //printf("\tProducent %d zatrzymał się\n", prod.id);
+            logProdStop(prod);
             queueNode proc = {producedItems, prod.id};
             producerQueue.push(proc);
             pthread_cond_wait(&full, &prod.mutex);
@@ -79,22 +164,23 @@ public:
         while (magazineState > capacity / 2 && consumerQueue.empty())
         {
             if(!consHeuristic.empty()) {
-                //printf("\tKonusment %d wznowił się przez stan magazynu\n", consHeuristic.front().id);
+                logConsHeurResume(consHeuristic.front().id);
                 consHeuristic.pop();
                 pthread_cond_signal(&lessThanHalf);
             }
-            //printf("\tProducent %d zatrzymał się przez stan magazynu\n", prod.id);
+            logProdHeurStop(prod);
             queueNode proc = {producedItems, prod.id};
             prodHeuristic.push(proc);
             pthread_cond_wait(&moreThanHalf, &prod.mutex);
         }
         magazineState += producedItems;
-        printf("\tW magazynie znajduje się %ld sztuk towaru\n", magazineState);
+        updateMagazine(magazineState);
+        logMagazineChange(magazineState);
         if(!consumerQueue.empty())
         {
             if(magazineState - consumerQueue.front().items >= 0)
             {
-                //printf("\tKonsument %d wznowił pracę\n", consumerQueue.front().id);
+                logConsResume(consumerQueue.front().id);
                 consumerQueue.pop();
                 pthread_cond_signal(&empty);
             }
@@ -105,11 +191,11 @@ public:
         while (0 > magazineState - consumedItems)
         {
             if(!prodHeuristic.empty()) {
-                //printf("\tProducent %d wznowił się przez stan magazynu\n", prodHeuristic.front().id);
+                logProdHeurResume(prodHeuristic.front().id);
                 prodHeuristic.pop();
                 pthread_cond_signal(&moreThanHalf);
             }
-            //printf("\tKosnument %d zatrzymał się\n", cons.id);
+            logConsStop(cons);
             queueNode proc = {consumedItems, cons.id};
             consumerQueue.push(proc);
             pthread_cond_wait(&empty, &cons.mutex);
@@ -117,22 +203,23 @@ public:
         while (magazineState <= capacity / 2 && producerQueue.empty())
         {
             if(!prodHeuristic.empty()) {
-                //printf("\tProducent %d wznowił się przez stan magazynu\n", prodHeuristic.front().id);
+                logProdHeurResume(prodHeuristic.front().id);
                 prodHeuristic.pop();
                 pthread_cond_signal(&moreThanHalf);
             }
-            //printf("\tKonsument %d zatrzymał się przez stan magazynu\n", cons.id);
+            logConsHeurStop(cons);
             queueNode proc = {consumedItems, cons.id};
             consHeuristic.push(proc);
             pthread_cond_wait(&lessThanHalf, &cons.mutex);
         }
         magazineState -= consumedItems;
-        printf("\tW magazynie znajduje się %ld sztuk towaru\n", magazineState);
+        updateMagazine(magazineState);
+        logMagazineChange(magazineState);
         if(!producerQueue.empty())
         {
             if(magazineState + producerQueue.front().items <= capacity)
             {
-                //printf("\tProducent %d wznowił pracę\n", producerQueue.front().id);
+                logProdResume(producerQueue.front().id);
                 producerQueue.pop();
                 pthread_cond_signal(&full);
             }
@@ -169,9 +256,9 @@ Monitor monitor;
 
         sleep(1);
         producedItems = rand() % (p.b - p.a + 1) + p.a;
-        //printf("\tProducent %d próbuje wyprodukować %d towarów\n", p.id, producedItems);
+        logProdTry(p, producedItems);
         monitor.fillMagazine(producedItems, p);
-        //printf("\tProducent %d wyprodukował %d towarów\n", p.id, producedItems);
+        logProdSuccess(p, producedItems);
     }
 }
 
@@ -185,9 +272,9 @@ Monitor monitor;
     {
         sleep(1);
         consumedItems = rand() % (c.d - c.c + 1) + c.c;
-        //printf("\tKonusment %d próbuje zabrać %d towarów\n", c.id, consumedItems);
+        logConsTry(c, consumedItems);
         monitor.takeFromMagazine(consumedItems, c);
-        //printf("\tKonusment %d zabrał %d towarów\n", c.id, consumedItems);
+        logConsSuccess(c, consumedItems);
     }
 }
 
@@ -211,7 +298,7 @@ int main(int argc, char* argv[]) {
     struct consumer consumerThreads[n];
     int i = 0;
 
-
+    clearLogs();
 
     for (i ; i < m ; i++) {
         struct producer prod = {a, b, i};
