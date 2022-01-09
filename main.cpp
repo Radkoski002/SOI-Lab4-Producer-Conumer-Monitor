@@ -22,6 +22,11 @@ struct consumer{
     pthread_mutex_t mutex;
 };
 
+struct queueNode
+{
+    int items;
+    int id;
+};
 
 class Monitor
 {
@@ -31,16 +36,16 @@ class Monitor
     pthread_cond_t moreThanHalf{};
     long int magazineState = 0;
     long int capacity = 0;
-    queue<int> producerQueue;
-    queue<int> consumerQueue;
-    queue<int> prodHeuristic;
-    queue<int> consHeuristic;
+    queue<queueNode> producerQueue;
+    queue<queueNode> consumerQueue;
+    queue<queueNode> prodHeuristic;
+    queue<queueNode> consHeuristic;
 
 private:
 
-    long int readFromMagazine() {
+    long int updateMagazine(long int magazineChange) {
         char * pEnd;
-        FILE* file = fopen ("magazine.txt", "r");
+        FILE* file = fopen ("magazine.txt", "r+");
 
         char fileContent[10];
         long int currentState = 0;
@@ -49,6 +54,9 @@ private:
         fclose (file);
 
         currentState = strtol(fileContent, &pEnd, 10);
+        currentState += magazineChange;
+
+        fprintf(file, "%ld", currentState);
 
         return currentState;
     }
@@ -58,17 +66,35 @@ public:
     void fillMagazine(int producedItems, producer prod){
         while (capacity < magazineState + producedItems)
         {
-            //printf("\tProducent zatrzymał się\n");
-            producerQueue.push(producedItems);
+            if(!consHeuristic.empty()) {
+                printf("\tKonusment %d wznowił się przez stan magazynu\n", consHeuristic.front().id);
+                consHeuristic.pop();
+                pthread_cond_signal(&lessThanHalf);
+            }
+            printf("\tProducent %d zatrzymał się\n", prod.id);
+            queueNode proc = {producedItems, prod.id};
+            producerQueue.push(proc);
             pthread_cond_wait(&full, &prod.mutex);
         }
+        while (magazineState > capacity / 2 && consumerQueue.empty())
+        {
+            if(!consHeuristic.empty()) {
+                printf("\tKonusment %d wznowił się przez stan magazynu\n", consHeuristic.front().id);
+                consHeuristic.pop();
+                pthread_cond_signal(&lessThanHalf);
+            }
+            printf("\tProducent %d zatrzymał się przez stan magazynu\n", prod.id);
+            queueNode proc = {producedItems, prod.id};
+            prodHeuristic.push(proc);
+            pthread_cond_wait(&moreThanHalf, &prod.mutex);
+        }
         magazineState += producedItems;
-        printf("\tW magazynie znajduje się %d sztuk towaru\n", magazineState);
+        printf("\n\tW magazynie znajduje się %ld sztuk towaru\n\n", magazineState);
         if(!consumerQueue.empty())
         {
-            if(magazineState - consumerQueue.front() >= 0)
+            if(magazineState - consumerQueue.front().items >= 0)
             {
-                //printf("\tKonsument wznowił pracę\n");
+                printf("\tKonsument %d wznowił pracę\n", consumerQueue.front().id);
                 consumerQueue.pop();
                 pthread_cond_signal(&empty);
             }
@@ -78,17 +104,35 @@ public:
     void takeFromMagazine(int consumedItems, consumer cons){
         while (0 > magazineState - consumedItems)
         {
-            //printf("\tKosnument zatrzymał się\n");
-            consumerQueue.push(consumedItems);
+            if(!prodHeuristic.empty()) {
+                printf("\tProducent %d wznowił się przez stan magazynu\n", prodHeuristic.front().id);
+                prodHeuristic.pop();
+                pthread_cond_signal(&moreThanHalf);
+            }
+            printf("\tKosnument %d zatrzymał się\n", cons.id);
+            queueNode proc = {consumedItems, cons.id};
+            consumerQueue.push(proc);
             pthread_cond_wait(&empty, &cons.mutex);
         }
+        while (magazineState <= capacity / 2 && producerQueue.empty())
+        {
+            if(!prodHeuristic.empty()) {
+                printf("\tProducent %d wznowił się przez stan magazynu\n", prodHeuristic.front().id);
+                prodHeuristic.pop();
+                pthread_cond_signal(&moreThanHalf);
+            }
+            printf("\tKonsument %d zatrzymał się przez stan magazynu\n", cons.id);
+            queueNode proc = {consumedItems, cons.id};
+            consHeuristic.push(proc);
+            pthread_cond_wait(&lessThanHalf, &cons.mutex);
+        }
         magazineState -= consumedItems;
-        printf("\tW magazynie znajduje się %d sztuk towaru\n", magazineState);
+        printf("\n\tW magazynie znajduje się %ld sztuk towaru\n\n", magazineState);
         if(!producerQueue.empty())
         {
-            if(magazineState + producerQueue.front() <= capacity)
+            if(magazineState + producerQueue.front().items <= capacity)
             {
-                //printf("\tProducent wznowił pracę\n");
+                printf("\tProducent %d wznowił pracę\n", producerQueue.front().id);
                 producerQueue.pop();
                 pthread_cond_signal(&full);
             }
@@ -98,16 +142,6 @@ public:
     void setCapacity(long int cap)
     {
         capacity = cap;
-    }
-
-    long int getCapacity() const
-    {
-        return capacity;
-    }
-
-    long int getMagazineState() const
-    {
-        return magazineState;
     }
 
     explicit Monitor(){
@@ -135,9 +169,9 @@ Monitor monitor;
 
         sleep(1);
         producedItems = rand() % (p.b - p.a + 1) + p.a;
-        //printf("Producent %d próbuje wyprodukować %d towarów\n", p.id, producedItems);
+        printf("\tProducent %d próbuje wyprodukować %d towarów\n", p.id, producedItems);
         monitor.fillMagazine(producedItems, p);
-        //printf("Producent %d wyprodukował %d towarów\n", p.id, producedItems);
+        printf("\tProducent %d wyprodukował %d towarów\n", p.id, producedItems);
     }
 }
 
@@ -151,9 +185,9 @@ Monitor monitor;
     {
         sleep(1);
         consumedItems = rand() % (c.d - c.c + 1) + c.c;
-        //printf("Konusment %d próbuje zabrać %d towarów\n", c.id, consumedItems);
+        printf("\tKonusment %d próbuje zabrać %d towarów\n", c.id, consumedItems);
         monitor.takeFromMagazine(consumedItems, c);
-        //printf("Konusment %d zabrał %d towarów\n", c.id, consumedItems);
+        printf("\tKonusment %d zabrał %d towarów\n", c.id, consumedItems);
     }
 }
 
