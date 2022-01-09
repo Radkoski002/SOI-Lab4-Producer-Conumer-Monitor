@@ -27,10 +27,14 @@ class Monitor
 {
     pthread_cond_t full{};
     pthread_cond_t empty{};
+    pthread_cond_t lessThanHalf{};
+    pthread_cond_t moreThanHalf{};
     long int magazineState = 0;
     long int capacity = 0;
     queue<int> producerQueue;
     queue<int> consumerQueue;
+    queue<int> prodHeuristic;
+    queue<int> consHeuristic;
 
 private:
 
@@ -52,7 +56,7 @@ private:
 public:
 
     void fillMagazine(int producedItems, producer prod){
-        if (capacity < magazineState + producedItems)
+        while (capacity < magazineState + producedItems)
         {
             //printf("\tProducent zatrzymał się\n");
             producerQueue.push(producedItems);
@@ -62,7 +66,7 @@ public:
         printf("\tW magazynie znajduje się %d sztuk towaru\n", magazineState);
         if(!consumerQueue.empty())
         {
-            if(magazineState - consumerQueue.front() >= 0 && magazineState > capacity / 2)
+            if(magazineState - consumerQueue.front() >= 0)
             {
                 //printf("\tKonsument wznowił pracę\n");
                 consumerQueue.pop();
@@ -72,7 +76,7 @@ public:
     }
 
     void takeFromMagazine(int consumedItems, consumer cons){
-        if (0 > magazineState - consumedItems)
+        while (0 > magazineState - consumedItems)
         {
             //printf("\tKosnument zatrzymał się\n");
             consumerQueue.push(consumedItems);
@@ -82,7 +86,7 @@ public:
         printf("\tW magazynie znajduje się %d sztuk towaru\n", magazineState);
         if(!producerQueue.empty())
         {
-            if(magazineState + producerQueue.front() <= capacity && magazineState <= capacity / 2)
+            if(magazineState + producerQueue.front() <= capacity)
             {
                 //printf("\tProducent wznowił pracę\n");
                 producerQueue.pop();
@@ -111,6 +115,10 @@ public:
         resultCode = pthread_cond_init(&full, nullptr);
         assert(!resultCode);
         resultCode = pthread_cond_init(&empty, nullptr);
+        assert(!resultCode);
+        resultCode = pthread_cond_init(&moreThanHalf, nullptr);
+        assert(!resultCode);
+        resultCode = pthread_cond_init(&lessThanHalf, nullptr);
         assert(!resultCode);
     }
 };
