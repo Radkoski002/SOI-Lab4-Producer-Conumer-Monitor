@@ -1,0 +1,8 @@
+/.idea
+/.vscode
+/cmake-build-debug
+/build
+/consLog.txt
+/magazine.txt
+/magazineLog.txt
+/prodLog.txt
